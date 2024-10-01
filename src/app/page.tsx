@@ -1,101 +1,232 @@
-import Image from "next/image";
+"use client";
 
-export default function Home() {
+import React, { useState, useEffect, useCallback } from "react";
+import dynamic from "next/dynamic";
+import { Button } from "@/components/ui/button";
+import { Copy, RefreshCw } from "lucide-react";
+
+const AceEditor = dynamic(
+  async () => {
+    const ace = await import("react-ace");
+    await import("ace-builds/src-noconflict/mode-sql");
+    await import("ace-builds/src-noconflict/theme-terminal");
+    return ace;
+  },
+  { ssr: false }
+);
+
+interface ConversionRule {
+  regex: RegExp;
+  replace: string | ((match: string, ...args: any[]) => string);
+}
+
+const conversionRules: ConversionRule[] = [
+  { regex: /\[([^\]]+)\]/g, replace: '"$1"' },
+  { regex: /N'([^']*)'/g, replace: "'$1'" },
+  { regex: /TOP\s+(\d+)/i, replace: "LIMIT $1" },
+  { regex: /GETDATE\(\)/gi, replace: "CURRENT_DATE" },
+  { regex: /SYSDATETIME\(\)/gi, replace: "CURRENT_TIMESTAMP" },
+  {
+    regex: /DATEDIFF\((\w+),\s*([^,]+),\s*([^)]+)\)/gi,
+    replace: (match, interval, startDate, endDate) => {
+      const intervalMap: { [key: string]: string } = {
+        YEAR: "YEAR",
+        MONTH: "MONTH",
+        DAY: "DAY",
+        HOUR: "HOUR",
+        MINUTE: "MINUTE",
+        SECOND: "SECOND",
+      };
+      return `DATE_PART('${
+        intervalMap[interval.toUpperCase()]
+      }', ${endDate}::timestamp - ${startDate}::timestamp)`;
+    },
+  },
+  { regex: /ISNULL\(([^,]+),\s*([^)]+)\)/gi, replace: "COALESCE($1, $2)" },
+  { regex: /CONVERT\((\w+),\s*([^)]+)\)/gi, replace: "CAST($2 AS $1)" },
+  { regex: /CHARINDEX\(([^,]+),\s*([^)]+)\)/gi, replace: "POSITION($1 IN $2)" },
+  { regex: /LEN\(([^)]+)\)/gi, replace: "LENGTH($1)" },
+  {
+    regex: /GETUTCDATE\(\)/gi,
+    replace: "CURRENT_TIMESTAMP AT TIME ZONE 'UTC'",
+  },
+  {
+    regex: /DATEFROMPARTS\((\d+),\s*(\d+),\s*(\d+)\)/gi,
+    replace: "MAKE_DATE($1, $2, $3)",
+  },
+  {
+    regex: /DATEADD\((\w+),\s*([^,]+),\s*([^)]+)\)/gi,
+    replace: (match, interval, number, date) => {
+      const intervalMap: { [key: string]: string } = {
+        YEAR: "YEARS",
+        MONTH: "MONTHS",
+        DAY: "DAYS",
+        HOUR: "HOURS",
+        MINUTE: "MINUTES",
+        SECOND: "SECONDS",
+      };
+      return `(${date}::timestamp + INTERVAL '${number} ${
+        intervalMap[interval.toUpperCase()] || interval
+      }')`;
+    },
+  },
+  { regex: /(\w+)\s*\+\s*(\w+)/g, replace: "$1 || $2" },
+  { regex: /SELECT\s+TOP\s+(\d+)/gi, replace: "SELECT" },
+  { regex: /^\s*GO\s*$/gim, replace: ";" },
+];
+
+const processSubQueries = (sql: string): string => {
+  const subQueryRegex = /\(([^()]+|\((?:[^()]+|\([^()]*\))*\))*\)/g;
+  return sql.replace(subQueryRegex, (match) => {
+    const innerSql = match.slice(1, -1);
+    const convertedInnerSql = convertQuery(innerSql);
+    return `(${convertedInnerSql})`;
+  });
+};
+
+const convertQuery = (sql: string): string => {
+  let converted = sql;
+
+  // Process subqueries first
+  converted = processSubQueries(converted);
+
+  // Apply conversion rules
+  conversionRules.forEach((rule) => {
+    converted = converted.replace(rule.regex, rule.replace as string);
+  });
+
+  // Correct schema names
+  converted = converted.replace(/(\w+)\./g, (match, schemaName) => {
+    return schemaName.toLowerCase() + ".";
+  });
+
+  // Add LIMIT to the end if it's not present
+  if (!/LIMIT\s+\d+/i.test(converted) && /TOP\s+\d+/i.test(sql)) {
+    const match = sql.match(/TOP\s+(\d+)/i);
+    if (match) {
+      converted += ` LIMIT ${match[1]}`;
+    }
+  }
+
+  return converted;
+};
+
+function debounce<T extends (...args: any[]) => any>(
+  func: T,
+  wait: number
+): (...args: Parameters<T>) => void {
+  let timeout: NodeJS.Timeout | null = null;
+  return (...args: Parameters<T>) => {
+    if (timeout) clearTimeout(timeout);
+    timeout = setTimeout(() => func(...args), wait);
+  };
+}
+
+export default function SQLConverter() {
+  const [mssqlQuery, setMssqlQuery] = useState<string>("");
+  const [psqlQuery, setPsqlQuery] = useState<string>("");
+  const [copySuccess, setCopySuccess] = useState<boolean>(false);
+  const [isConverting, setIsConverting] = useState<boolean>(false);
+
+  const debouncedConvert = useCallback(
+    debounce((query: string) => {
+      setIsConverting(true);
+      const converted = convertQuery(query);
+      setPsqlQuery(converted);
+      setIsConverting(false);
+    }, 300),
+    []
+  );
+
+  useEffect(() => {
+    if (mssqlQuery) {
+      debouncedConvert(mssqlQuery);
+    } else {
+      setPsqlQuery("");
+    }
+  }, [mssqlQuery, debouncedConvert]);
+
+  const copyToClipboard = () => {
+    navigator.clipboard.writeText(psqlQuery).then(
+      () => {
+        setCopySuccess(true);
+        setTimeout(() => setCopySuccess(false), 2000);
+      },
+      (err) => {
+        console.error("Could not copy text: ", err);
+      }
+    );
+  };
+
   return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-8 row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="https://nextjs.org/icons/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-semibold">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li>Save and see your changes instantly.</li>
-        </ol>
-
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="https://nextjs.org/icons/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:min-w-44"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+    <div className="container mx-auto p-4">
+      <h1 className="text-2xl font-bold mb-4">Real-time SQL Query Converter</h1>
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <h2 className="text-lg font-semibold mb-2">MSSQL Query</h2>
+          <AceEditor
+            name="mssql-editor"
+            mode="sql"
+            theme="terminal"
+            onChange={setMssqlQuery}
+            value={mssqlQuery}
+            lineHeight={19}
+            showPrintMargin={true}
+            showGutter={true}
+            highlightActiveLine={true}
+            fontSize={14}
+            editorProps={{ $blockScrolling: true }}
+            setOptions={{
+              enableBasicAutocompletion: true,
+              enableLiveAutocompletion: true,
+              enableSnippets: true,
+              showLineNumbers: true,
+              tabSize: 2,
+            }}
+            style={{ width: "100%", height: "500px" }}
+          />
         </div>
-      </main>
-      <footer className="row-start-3 flex gap-6 flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
+        <div>
+          <div className="flex justify-between items-center mb-2">
+            <h2 className="text-lg font-semibold">PostgreSQL Query</h2>
+            {isConverting && (
+              <div className="flex items-center text-blue-500">
+                <RefreshCw className="w-4 h-4 mr-2 animate-spin" />
+                <span>Converting...</span>
+              </div>
+            )}
+          </div>
+          <AceEditor
+            name="psql-editor"
+            mode="sql"
+            theme="terminal"
+            value={psqlQuery}
+            fontSize={14}
+            lineHeight={19}
+            showPrintMargin={true}
+            showGutter={true}
+            highlightActiveLine={true}
+            editorProps={{ $blockScrolling: true }}
+            readOnly={true}
+            setOptions={{
+              enableBasicAutocompletion: true,
+              enableLiveAutocompletion: false,
+              enableSnippets: false,
+              showLineNumbers: true,
+              tabSize: 2,
+            }}
+            style={{ width: "100%", height: "500px" }}
           />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
+          <Button
+            onClick={copyToClipboard}
+            className="mt-2 flex items-center"
+            disabled={!psqlQuery}
+          >
+            <Copy className="w-4 h-4 mr-2" />
+            {copySuccess ? "Copied!" : "Copy"}
+          </Button>
+        </div>
+      </div>
     </div>
   );
 }
