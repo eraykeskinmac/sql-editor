@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect } from "react";
 import dynamic from "next/dynamic";
 import { Button } from "@/components/ui/button";
 import { Copy, RefreshCw } from "lucide-react";
@@ -17,7 +17,7 @@ const AceEditor = dynamic(
 
 interface ConversionRule {
   regex: RegExp;
-  replace: string | ((match: string, ...args: any[]) => string);
+  replace: string | ((match: string, ...args: unknown[]) => string);
 }
 
 const conversionRules: ConversionRule[] = [
@@ -38,7 +38,7 @@ const conversionRules: ConversionRule[] = [
         SECOND: "SECOND",
       };
       return `DATE_PART('${
-        intervalMap[interval.toUpperCase()]
+        intervalMap[interval.toString().toUpperCase()]
       }', ${endDate}::timestamp - ${startDate}::timestamp)`;
     },
   },
@@ -66,7 +66,7 @@ const conversionRules: ConversionRule[] = [
         SECOND: "SECONDS",
       };
       return `(${date}::timestamp + INTERVAL '${number} ${
-        intervalMap[interval.toUpperCase()] || interval
+        intervalMap[interval.toString().toUpperCase()] || interval
       }')`;
     },
   },
@@ -111,40 +111,22 @@ const convertQuery = (sql: string): string => {
   return converted;
 };
 
-function debounce<T extends (...args: any[]) => any>(
-  func: T,
-  wait: number
-): (...args: Parameters<T>) => void {
-  let timeout: NodeJS.Timeout | null = null;
-  return (...args: Parameters<T>) => {
-    if (timeout) clearTimeout(timeout);
-    timeout = setTimeout(() => func(...args), wait);
-  };
-}
-
 export default function SQLConverter() {
   const [mssqlQuery, setMssqlQuery] = useState<string>("");
   const [psqlQuery, setPsqlQuery] = useState<string>("");
   const [copySuccess, setCopySuccess] = useState<boolean>(false);
   const [isConverting, setIsConverting] = useState<boolean>(false);
 
-  const debouncedConvert = useCallback(
-    debounce((query: string) => {
-      setIsConverting(true);
-      const converted = convertQuery(query);
-      setPsqlQuery(converted);
-      setIsConverting(false);
-    }, 300),
-    []
-  );
-
   useEffect(() => {
     if (mssqlQuery) {
-      debouncedConvert(mssqlQuery);
+      setIsConverting(true);
+      const converted = convertQuery(mssqlQuery);
+      setPsqlQuery(converted);
+      setIsConverting(false);
     } else {
       setPsqlQuery("");
     }
-  }, [mssqlQuery, debouncedConvert]);
+  }, [mssqlQuery]);
 
   const copyToClipboard = () => {
     navigator.clipboard.writeText(psqlQuery).then(
