@@ -17,7 +17,7 @@ const AceEditor = dynamic(
 
 interface ConversionRule {
   regex: RegExp;
-  replace: string | ((match: string, ...args: unknown[]) => string);
+  replace: string | ((match: string, ...args: string[]) => string);
 }
 
 const conversionRules: ConversionRule[] = [
@@ -28,7 +28,12 @@ const conversionRules: ConversionRule[] = [
   { regex: /SYSDATETIME\(\)/gi, replace: "CURRENT_TIMESTAMP" },
   {
     regex: /DATEDIFF\((\w+),\s*([^,]+),\s*([^)]+)\)/gi,
-    replace: (match, interval, startDate, endDate) => {
+    replace: (
+      match: string,
+      interval: string,
+      startDate: string,
+      endDate: string
+    ) => {
       const intervalMap: { [key: string]: string } = {
         YEAR: "YEAR",
         MONTH: "MONTH",
@@ -38,7 +43,7 @@ const conversionRules: ConversionRule[] = [
         SECOND: "SECOND",
       };
       return `DATE_PART('${
-        intervalMap[interval.toString().toUpperCase()]
+        intervalMap[interval.toUpperCase()]
       }', ${endDate}::timestamp - ${startDate}::timestamp)`;
     },
   },
@@ -56,7 +61,12 @@ const conversionRules: ConversionRule[] = [
   },
   {
     regex: /DATEADD\((\w+),\s*([^,]+),\s*([^)]+)\)/gi,
-    replace: (match, interval, number, date) => {
+    replace: (
+      match: string,
+      interval: string,
+      number: string,
+      date: string
+    ) => {
       const intervalMap: { [key: string]: string } = {
         YEAR: "YEARS",
         MONTH: "MONTHS",
@@ -66,7 +76,7 @@ const conversionRules: ConversionRule[] = [
         SECOND: "SECONDS",
       };
       return `(${date}::timestamp + INTERVAL '${number} ${
-        intervalMap[interval.toString().toUpperCase()] || interval
+        intervalMap[interval.toUpperCase()] || interval
       }')`;
     },
   },
