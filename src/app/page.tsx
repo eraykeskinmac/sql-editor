@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Loader2, Copy, Trash, RefreshCw } from "lucide-react";
 import { useCompletion } from "ai/react";
+import { useTheme } from "next-themes";
 import { toast } from "@/hooks/use-toast";
 
 const AceEditor = dynamic(
@@ -19,43 +20,13 @@ const AceEditor = dynamic(
   { ssr: false }
 );
 
-const isValidSQLQuery = (query: string): boolean => {
-  const trimmedQuery = query.trim().toLowerCase();
-  const validKeywords = [
-    "select",
-    "insert",
-    "update",
-    "delete",
-    "create",
-    "alter",
-    "drop",
-    "truncate",
-    "with",
-  ];
-  return (
-    validKeywords.some((keyword) => trimmedQuery.startsWith(keyword)) &&
-    trimmedQuery.length > 10
-  );
-};
-
 export default function SQLConverter() {
   const [mssqlQuery, setMssqlQuery] = useState<string>("");
   const [copySuccess, setCopySuccess] = useState<boolean>(false);
+  const { theme } = useTheme();
 
   const { complete, completion, isLoading, setCompletion } = useCompletion({
     api: "/api/sql-convert",
-    onFinish: (result) => {
-      if (result.trim()) {
-        setCompletion(result);
-      } else {
-        toast({
-          title: "Error",
-          description:
-            "The conversion result is empty. Please check your input query.",
-          variant: "destructive",
-        });
-      }
-    },
     onError: (err) => {
       console.error("Completion error:", err);
       toast({
@@ -63,41 +34,22 @@ export default function SQLConverter() {
         description: "An error occurred during conversion. Please try again.",
         variant: "destructive",
       });
-      setCompletion("");
     },
   });
 
   const handleConvert = async () => {
-    if (!mssqlQuery.trim()) {
-      toast({
-        title: "Error",
-        description: "Please enter an SQL query before converting.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    if (!isValidSQLQuery(mssqlQuery)) {
-      toast({
-        title: "Warning",
-        description:
-          "The input doesn't look like a valid SQL query. Please check and try again.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    try {
-      await complete(mssqlQuery);
-    } catch (err) {
-      console.error("Conversion error:", err);
-      toast({
-        title: "Error",
-        description:
-          "Failed to convert the query. Please check your input and try again.",
-        variant: "destructive",
-      });
-      setCompletion("");
+    if (mssqlQuery) {
+      try {
+        await complete(mssqlQuery);
+      } catch (err) {
+        console.error("Conversion error:", err);
+        toast({
+          title: "Error",
+          description:
+            "Failed to convert the query. Please check your input and try again.",
+          variant: "destructive",
+        });
+      }
     }
   };
 
@@ -145,7 +97,7 @@ export default function SQLConverter() {
     },
     style: {
       width: "100%",
-      height: "600px",
+      height: "400px",
       borderRadius: "0.375rem",
     },
   };
@@ -173,14 +125,18 @@ export default function SQLConverter() {
             <CardTitle className="text-2xl">PostgreSQL Query</CardTitle>
           </CardHeader>
           <CardContent>
-            <AceEditor {...editorProps} value={completion} readOnly={true} />
+            <AceEditor
+              {...editorProps}
+              value={completion}
+              readOnly={true}
+            />
           </CardContent>
         </Card>
       </div>
       <div className="flex justify-center mt-6 space-x-4">
         <Button
           onClick={handleConvert}
-          disabled={!mssqlQuery.trim() || isLoading}
+          disabled={!mssqlQuery || isLoading}
           className="text-lg px-6 py-3"
         >
           {isLoading ? (
