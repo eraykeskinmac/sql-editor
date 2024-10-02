@@ -6,7 +6,6 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Loader2, Copy, Trash, RefreshCw } from "lucide-react";
 import { useCompletion } from "ai/react";
-import { useTheme } from "next-themes";
 import { toast } from "@/hooks/use-toast";
 
 const AceEditor = dynamic(
@@ -23,7 +22,6 @@ const AceEditor = dynamic(
 export default function SQLConverter() {
   const [mssqlQuery, setMssqlQuery] = useState<string>("");
   const [copySuccess, setCopySuccess] = useState<boolean>(false);
-  const { theme } = useTheme();
 
   const { complete, completion, isLoading, setCompletion } = useCompletion({
     api: "/api/sql-convert",
